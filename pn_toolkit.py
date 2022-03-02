@@ -33,6 +33,7 @@ stat_parser.add_argument('file_path', nargs='?')
 # Liveness analysis 
 stat_parser = arg_subparsers.add_parser('compute-liveness')
 stat_parser.add_argument('file_path', nargs='?')
+stat_parser.add_argument('--verify', action='store_true', default=False, dest='verify_results')
 
 args = arg_parser.parse_args()
 if args.mode is None:
@@ -53,7 +54,7 @@ if args.mode == 'stats':
         setattr(csv_config, output_option, output_option in args.output_flags)
     print(pn.into_csv(csv_config))
 elif args.mode == 'compute-liveness':
-    invariant = compute_liveness_coin_values(pn)
+    invariant = compute_liveness_coin_values(pn, verify_result=args.verify_results)
     reduced_inv = reduce_invariant_to_coprimes(invariant)
     print(','.join(map(str, reduced_inv)))
 

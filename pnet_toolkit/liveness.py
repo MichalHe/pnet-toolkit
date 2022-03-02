@@ -12,7 +12,7 @@ import numpy as np
 
 
 
-def compute_liveness_coin_values(pn: PetriNet):
+def compute_liveness_coin_values(pn: PetriNet, verify_result: bool = False):
     """
     Generate the frobenius coin problem coin values that determine 
     the liveness of the given petri net.
@@ -85,6 +85,9 @@ def compute_liveness_coin_values(pn: PetriNet):
             _adj_mat -= np.multiply(a, m[:, np.newaxis])
 
         p_invariant *= np.abs(row_multipliers)
+
+    if verify_result:
+        assert (np.zeros(len(p_invariant)) == np.dot(p_invariant, adj_mat)).all()
     
     return p_invariant
 
