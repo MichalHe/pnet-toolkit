@@ -12,29 +12,24 @@ import numpy as np
 
 
 
-def compute_liveness_coin_values(pn: PetriNet, verify_result: bool = False):
-    """
-    Generate the frobenius coin problem coin values that determine 
-    the liveness of the given petri net.
-    """
+def build_adjacency_matrix_from_pnet(pnet: PetriNet) -> np.array:
+    """Construct the adjacency matrix: columns are transitions and rows are places."""
 
-    # Construct the adjacency matrix: columns are transitions and rows are place deltas
-    
     # Collect arcs for individual transitions
     transition_arcs: Dict[str, List[PNArc]] = defaultdict(list)
-    for arc in pn.arcs:
-        transition = arc.source if arc.source in pn.transitions else arc.target
+    for arc in pnet.arcs:
+        transition = arc.source if arc.source in pnet.transitions else arc.target
         transition_arcs[transition].append(arc)
 
     # Initialize the matrix
-    adj_mat = np.zeros((len(pn.places), len(pn.transitions)), dtype=np.int64)
+    adj_mat = np.zeros((len(pnet.places), len(pnet.transitions)), dtype=np.int64)
 
     # Assign indices for transitions and places
-    transition_indices: Dict[str, int] = dict((transition, i) for i, transition in enumerate(sorted(pn.transitions))) 
-    place_indices: Dict[str, int] = dict((place, i) for i, place in enumerate(sorted(pn.places))) 
+    transition_indices: Dict[str, int] = dict((transition, i) for i, transition in enumerate(sorted(pnet.transitions)))
+    place_indices: Dict[str, int] = dict((place, i) for i, place in enumerate(sorted(pnet.places)))
 
     # Go over the transitions and populate the matrix
-    for transition in pn.transitions:
+    for transition in pnet.transitions:
         transition_index = transition_indices[transition]
         for arc in transition_arcs[transition]:
             # Determine the mark flow
@@ -48,54 +43,86 @@ def compute_liveness_coin_values(pn: PetriNet, verify_result: bool = False):
 
             adj_mat[place_index][transition_index] = sign * arc.weight
 
-    # Use the adjacency matrix A and calculate a P-invariant p such that
-    p_invariant = np.ones(len(pn.places), dtype=np.int64)
-    _adj_mat = np.copy(adj_mat)  # Make a copy of the adj_mat as we will modify it
-    for i in range(len(pn.transitions)):
-        column = _adj_mat[:, i]
-        
-        nonzero_column = np.where((column == 0), np.ones(len(pn.places), dtype=np.int64), column)
-        lcm = np.lcm.reduce(nonzero_column)
+    return adj_mat
 
-        row_multipliers_zero = np.floor_divide(lcm, column, dtype=np.int64)
-        row_multipliers = np.where((row_multipliers_zero == 0), np.ones(len(pn.places), dtype=np.int64), row_multipliers_zero)
-        
-        # Multiply the rows in the matrix, so that they have all the same value
-        _adj_mat = np.multiply(_adj_mat, row_multipliers[:, np.newaxis])
 
-        # Find the first nonzero row and use it to zero out all rows 
-        first_nonzero_row_i = None 
-        for row_i, row_value in enumerate(column):
-            if row_value != 0:
-                first_nonzero_row_i = row_i
-                break
-        
-        # The entire column has been zeroed out before
-        if first_nonzero_row_i is None:
-            continue
-        else:
-            a = np.transpose(
-                    np.reshape(
-                        np.repeat(_adj_mat[first_nonzero_row_i], len(pn.places)),
-                        (len(pn.places), len(pn.transitions))
-                    )
-                )
-            m = np.where((row_multipliers_zero != 0), np.ones(len(pn.places), dtype=np.int64), row_multipliers_zero)
 
-            _adj_mat -= np.multiply(a, m[:, np.newaxis])
+def compute_p_invariants(adj_matrix: np.array):
+    """Implementation of Farkas algorithm for computing P invariants."""
+    # Input matrix - rows=places, columns=transitions
+    place_count, transition_count = adj_matrix.shape
 
-        p_invariant *= np.abs(row_multipliers)
+    # Construct a juxtaposition of (adj_matrix | E)
+    jux_matrix = np.zeros((place_count, transition_count + place_count), dtype=np.int64)
+    for row_i, row in enumerate(adj_matrix):
+        for col_i, value in enumerate(row):
+            jux_matrix[row_i][col_i] = value
+
+        jux_matrix[row_i][transition_count + row_i] = 1
+
+    row_count = place_count
+    for column_i in range(transition_count):
+        for ri in range(row_count):
+            for rj in range(ri + 1, row_count):
+                val_i = jux_matrix[ri][column_i]
+                val_j = jux_matrix[rj][column_i]
+                if (val_i >= 0 and val_j >= 0) or ((val_i <= 0 and val_j <= 0)):
+                    # Process only values with different signs
+                    continue
+
+                new_row = abs(val_j) * jux_matrix[ri] + abs(val_i) * jux_matrix[rj]
+                gcd = np.gcd.reduce(new_row)
+                new_row = np.floor_divide(new_row, gcd)
+
+                jux_matrix = np.vstack([jux_matrix, new_row])
+                row_count += 1
+
+        nonzero_row_indices = []
+        for ri in range(row_count):
+            if jux_matrix[ri][column_i] != 0:
+                nonzero_row_indices.append(ri)
+                row_count -= 1
+
+        jux_matrix = np.delete(jux_matrix, tuple(nonzero_row_indices), axis=0)
+
+    return jux_matrix[:, transition_count:transition_count + place_count]
+
+
+def compute_liveness_coin_values(pn: PetriNet, verify_result: bool = False):
+    """
+    Generate the frobenius coin problem coin values that determine
+    the liveness of the given petri net.
+    """
+
+    adj_matrix = build_adjacency_matrix_from_pnet(pn)
+    p_invariants = compute_p_invariants(adj_matrix)
+
+    if not p_invariants.any():
+        return None
+
+    # Select the smallest invariant
+    minimal_invariant = p_invariants[0]
+    minimal_invariant_norm = np.linalg.norm(minimal_invariant)
+
+    for invariant in p_invariants:
+        norm = np.linalg.norm(invariant)
+        if norm < minimal_invariant_norm:
+            minimal_invariant = invariant
+            minimal_invariant_norm = norm
 
     if verify_result:
-        assert (np.zeros(len(p_invariant)) == np.dot(p_invariant, adj_mat)).all()
-    
-    return p_invariant
+        transition_count = adj_matrix.shape[1]
+        expected = np.zeros(transition_count, dtype=np.int64)
+        actual = np.dot(minimal_invariant, adj_matrix)
+
+        assert (actual == expected).all()
+
+    return minimal_invariant
 
 
 def reduce_invariant_to_coprimes(invariant: List[int]) -> List[int]:
     """Filter out those invariant elements that are not coprimes."""
     sorted_invariant = sorted(invariant)
-    print(sorted_invariant)
     reduced_invariant: Set[int] = set()
     for inv in sorted_invariant:
         for rinv in reduced_invariant:
@@ -107,5 +134,3 @@ def reduce_invariant_to_coprimes(invariant: List[int]) -> List[int]:
         if inv != 0:
             reduced_invariant.add(inv)
     return sorted(reduced_invariant)
-
-

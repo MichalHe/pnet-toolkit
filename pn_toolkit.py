@@ -55,6 +55,5 @@ if args.mode == 'stats':
     print(pn.into_csv(csv_config))
 elif args.mode == 'compute-liveness':
     invariant = compute_liveness_coin_values(pn, verify_result=args.verify_results)
-    reduced_inv = reduce_invariant_to_coprimes(invariant)
-    print(','.join(map(str, reduced_inv)))
-
+    # reduced_inv = reduce_invariant_to_coprimes(invariant)
+    print(','.join(map(str, invariant)))
