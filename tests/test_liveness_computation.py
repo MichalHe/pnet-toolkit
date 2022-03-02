@@ -1,5 +1,9 @@
 from pnet_toolkit.data import PetriNet, PNArc
-from pnet_toolkit.liveness import compute_liveness_coin_values
+from pnet_toolkit.liveness import (
+    build_adjacency_matrix_from_pnet,
+    compute_liveness_coin_values,
+    compute_p_invariants,
+)
 
 import pytest
 import numpy as np
@@ -53,7 +57,37 @@ def chrzastowski_pnet() -> PetriNet:
     )
 
 
-def test_pnet_from_chrzastowski_paper(chrzastowski_pnet: PetriNet):
-    actual = compute_liveness_coin_values(chrzastowski_pnet)
-    expected = np.array([4, 12, 15, 5]) 
+def test_invariants_from_chrzastowski_paper(chrzastowski_pnet: PetriNet):
+    adj_mat = build_adjacency_matrix_from_pnet(chrzastowski_pnet)
+    actual = compute_p_invariants(adj_mat)
+    expected = np.array([[4, 12, 15, 5]])
+
+    assert actual.shape == (1, 4)
+    assert (actual == expected).all()
+
+
+def test_coins_from_chrzastowski_paper(chrzastowski_pnet: PetriNet):
+    actual = compute_liveness_coin_values(chrzastowski_pnet, verify_result=True)
+    expected = np.array([4, 12, 15, 5])
+
+    assert (actual == expected).all()
+
+
+def test_pinvariant_computation():
+    mat = np.array([
+        [-1, 1, 1, -1],
+        [1, -1, -1, 1],
+        [0, 0, 1, 0],
+        [1, 0, 0, -1],
+        [-1, 0, 0, 1],
+    ], dtype=np.int64)
+
+    actual = compute_p_invariants(mat)
+    expected = np.array([
+        [1, 1, 0, 0, 0],
+        [0, 0, 0, 1, 1],
+        [1, 1, 0, 1, 1],
+    ])
+
+    assert actual.shape == (3, 5)
     assert (actual == expected).all()
