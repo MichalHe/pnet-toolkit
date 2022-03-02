@@ -49,19 +49,20 @@ def compute_liveness_coin_values(pn: PetriNet):
             adj_mat[place_index][transition_index] = sign * arc.weight
 
     # Use the adjacency matrix A and calculate a P-invariant p such that
-    p_invariant = np.zeros(len(pn.places), dtype=np.int32)
+    p_invariant = np.ones(len(pn.places), dtype=np.int64)
     _adj_mat = np.copy(adj_mat)  # Make a copy of the adj_mat as we will modify it
     for i in range(len(pn.transitions)):
         column = _adj_mat[:, i]
         
         nonzero_column = np.where((column == 0), np.ones(len(pn.places), dtype=np.int64), column)
         lcm = np.lcm.reduce(nonzero_column)
-        
-        row_multipliers = lcm / nonzero_column
+
+        row_multipliers_zero = np.floor_divide(lcm, column, dtype=np.int64)
+        row_multipliers = np.where((row_multipliers_zero == 0), np.ones(len(pn.places), dtype=np.int64), row_multipliers_zero)
         
         # Multiply the rows in the matrix, so that they have all the same value
         _adj_mat = np.multiply(_adj_mat, row_multipliers[:, np.newaxis])
-        
+
         # Find the first nonzero row and use it to zero out all rows 
         first_nonzero_row_i = None 
         for row_i, row_value in enumerate(column):
@@ -79,24 +80,11 @@ def compute_liveness_coin_values(pn: PetriNet):
                         (len(pn.places), len(pn.transitions))
                     )
                 )
-            import pdb
-            pdb.set_trace()
+            m = np.where((row_multipliers_zero != 0), np.ones(len(pn.places), dtype=np.int64), row_multipliers_zero)
 
+            _adj_mat -= np.multiply(a, m[:, np.newaxis])
 
-        p_fragment = []
-        for j, c in enumerate(column):
-            if c != 0:
-                multiplier = abs(int(lcm / c))
-                if multiplier == 1:
-                    p_fragment.append(0)
-                else:
-                    _adj_mat[j] *= multiplier
-                    p_fragment.append(multiplier)
-            else:
-                p_fragment.append(0)
-
-        p_fragment = np.abs(np.array(p_fragment))
-        p_invariant += p_fragment
+        p_invariant *= np.abs(row_multipliers)
     
     return p_invariant
 
